@@ -322,6 +322,7 @@ func (l *ZkEventListener) listenDirEvent(conf *common.URL, zkPath string, listen
 		for {
 			select {
 			case <-ticker.C:
+			    //fix by zfw
 				l.handleZkNodeEvent(zkPath, children, listener)
 			case zkEvent = <-childEventCh:
 				logger.Warnf("get a zookeeper zkEvent{type:%s, server:%s, path:%s, state:%d-%s, err:%s}",
