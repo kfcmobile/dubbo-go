@@ -122,51 +122,6 @@ func struct2MapAll(obj interface{}) interface{} {
 		}
 		return newTemps
 	} else if t.Kind() == reflect.Map {
-		iterClone := v.MapRange()
-		for iterClone.Next() {
-			kind := iterClone.Key().Kind()
-			switch kind {
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				var newTempMap = make(map[int64]interface{}, v.Len())
-				iter := v.MapRange()
-				for iter.Next() {
-					mapK := iter.Key().Int()
-					if !iter.Value().CanInterface() {
-						continue
-					}
-					mapV := iter.Value().Interface()
-					newTempMap[mapK] = struct2MapAll(mapV)
-				}
-				return newTempMap
-			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-				var newTempMap = make(map[uint64]interface{}, v.Len())
-				iter := v.MapRange()
-				for iter.Next() {
-					mapK := iter.Key().Uint()
-					if !iter.Value().CanInterface() {
-						continue
-					}
-					mapV := iter.Value().Interface()
-					newTempMap[mapK] = struct2MapAll(mapV)
-				}
-				return newTempMap
-			case reflect.Float32, reflect.Float64:
-				var newTempMap = make(map[float64]interface{}, v.Len())
-				iter := v.MapRange()
-				for iter.Next() {
-					mapK := iter.Key().Float()
-					if !iter.Value().CanInterface() {
-						continue
-					}
-					mapV := iter.Value().Interface()
-					newTempMap[mapK] = struct2MapAll(mapV)
-				}
-				return newTempMap
-			}
-
-			break
-		}
-
 		var newTempMap = make(map[string]interface{}, v.Len())
 		iter := v.MapRange()
 		for iter.Next() {
@@ -182,7 +137,6 @@ func struct2MapAll(obj interface{}) interface{} {
 		return obj
 	}
 }
-
 
 func setInMap(m map[string]interface{}, structField reflect.StructField, value interface{}) (result map[string]interface{}) {
 	result = m
