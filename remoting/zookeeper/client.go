@@ -269,7 +269,6 @@ func (z *ZookeeperClient) HandleZkEvent(session <-chan zk.Event) {
 				}*/
 				// ReConnect zk
 				z.reConnect()
-				return
 			case (int)(zk.EventNodeDataChanged), (int)(zk.EventNodeChildrenChanged):
 				logger.Infof("zkClient{%s} get zk node changed event{path:%s}", z.name, event.Path)
 				z.eventRegistryLock.RLock()
@@ -664,6 +663,11 @@ func (z *ZookeeperClient) reConnect() {
 		return
 	}
 
+	z.RLock()
+	if z.Conn != nil {
+		z.Conn.Close()
+	}
+	z.RUnlock()
 	z.Lock()
 	var err error
 	z.Conn, _, err = zk.Connect(z.ZkAddrs, z.Timeout)
