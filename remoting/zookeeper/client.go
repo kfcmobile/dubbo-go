@@ -18,7 +18,6 @@
 package zookeeper
 
 import (
-	content "google.golang.org/api/content/v2.1"
 	"path"
 	"strings"
 	"sync"
