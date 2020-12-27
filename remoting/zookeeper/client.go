@@ -18,6 +18,7 @@
 package zookeeper
 
 import (
+	content "google.golang.org/api/content/v2.1"
 	"path"
 	"strings"
 	"sync"
@@ -259,14 +260,16 @@ func (z *ZookeeperClient) HandleZkEvent(session <-chan zk.Event) {
 			switch (int)(event.State) {
 			case (int)(zk.StateDisconnected):
 				logger.Warnf("zk{addr:%s} state is StateDisconnected, so close the zk client{name:%s}.", z.ZkAddrs, z.name)
-				z.stop()
+				/*z.stop()
 				z.Lock()
 				conn := z.Conn
 				z.Conn = nil
 				z.Unlock()
 				if conn != nil {
 					conn.Close()
-				}
+				}*/
+				// ReConnect zk
+				z.reConnect()
 				return
 			case (int)(zk.EventNodeDataChanged), (int)(zk.EventNodeChildrenChanged):
 				logger.Infof("zkClient{%s} get zk node changed event{path:%s}", z.name, event.Path)
@@ -640,4 +643,29 @@ func (z *ZookeeperClient) getConn() *zk.Conn {
 	z.RLock()
 	defer z.RUnlock()
 	return z.Conn
+}
+
+// reConnect
+func (z *ZookeeperClient) reConnect() {
+	if z == nil {
+		return
+	}
+
+	for {
+		z.Lock()
+		var err error
+		z.Conn, _, err = zk.Connect(z.ZkAddrs, z.Timeout)
+
+		if err != nil {
+			logger.Errorf("reconnect err: %s", err.Error())
+		}
+		z.Unlock()
+
+		if z.Conn != nil {
+			logger.Info("reConnect zk success")
+			return
+		}
+
+		time.Sleep(1 * time.Second)
+	}
 }
