@@ -637,8 +637,22 @@ func (z *ZookeeperClient) SetContent(zkPath string, content []byte, version int3
 	return z.Conn.Set(zkPath, content, version)
 }
 
+// getState gets zookeeper state safely
+func (z *ZookeeperClient) getState() zk.State {
+	z.RLock()
+	state := z.Conn.State()
+	z.RUnlock()
+	return state
+}
+
 // getConn gets zookeeper connection safely
 func (z *ZookeeperClient) getConn() *zk.Conn {
+	state := z.getState()
+	switch state {
+	case zk.StateDisconnected, zk.StateExpired:
+		z.reConnect()
+	}
+
 	z.RLock()
 	defer z.RUnlock()
 	return z.Conn
@@ -650,21 +664,19 @@ func (z *ZookeeperClient) reConnect() {
 		return
 	}
 
-	for {
-		z.Lock()
-		var err error
-		z.Conn, _, err = zk.Connect(z.ZkAddrs, z.Timeout)
+	z.Lock()
+	var err error
+	z.Conn, _, err = zk.Connect(z.ZkAddrs, z.Timeout)
 
-		if err != nil {
-			logger.Errorf("reconnect err: %s", err.Error())
-		}
-		z.Unlock()
-
-		if z.Conn != nil {
-			logger.Info("reConnect zk success")
-			return
-		}
-
-		time.Sleep(1 * time.Second)
+	if err != nil {
+		logger.Errorf("reconnect err: %s", err.Error())
 	}
+	z.Unlock()
+
+	if z.Conn != nil {
+		logger.Info("reConnect zk success")
+		return
+	}
+
+	time.Sleep(1 * time.Second)
 }
