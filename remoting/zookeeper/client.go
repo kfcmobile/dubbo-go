@@ -259,16 +259,15 @@ func (z *ZookeeperClient) HandleZkEvent(session <-chan zk.Event) {
 			switch (int)(event.State) {
 			case (int)(zk.StateDisconnected):
 				logger.Warnf("zk{addr:%s} state is StateDisconnected, so close the zk client{name:%s}.", z.ZkAddrs, z.name)
-				/*z.stop()
+				z.stop()
 				z.Lock()
 				conn := z.Conn
 				z.Conn = nil
 				z.Unlock()
 				if conn != nil {
 					conn.Close()
-				}*/
-				// ReConnect zk
-				z.reConnect()
+				}
+				return
 			case (int)(zk.EventNodeDataChanged), (int)(zk.EventNodeChildrenChanged):
 				logger.Infof("zkClient{%s} get zk node changed event{path:%s}", z.name, event.Path)
 				z.eventRegistryLock.RLock()
@@ -636,51 +635,9 @@ func (z *ZookeeperClient) SetContent(zkPath string, content []byte, version int3
 	return z.Conn.Set(zkPath, content, version)
 }
 
-// getState gets zookeeper state safely
-func (z *ZookeeperClient) getState() zk.State {
-	z.RLock()
-	state := z.Conn.State()
-	z.RUnlock()
-	return state
-}
-
 // getConn gets zookeeper connection safely
 func (z *ZookeeperClient) getConn() *zk.Conn {
-	state := z.getState()
-	switch state {
-	case zk.StateDisconnected, zk.StateExpired:
-		z.reConnect()
-	}
-
 	z.RLock()
 	defer z.RUnlock()
 	return z.Conn
-}
-
-// reConnect
-func (z *ZookeeperClient) reConnect() {
-	if z == nil {
-		return
-	}
-
-	z.RLock()
-	if z.Conn != nil {
-		z.Conn.Close()
-	}
-	z.RUnlock()
-	z.Lock()
-	var err error
-	z.Conn, _, err = zk.Connect(z.ZkAddrs, z.Timeout)
-
-	if err != nil {
-		logger.Errorf("reconnect err: %s", err.Error())
-	}
-	z.Unlock()
-
-	if z.Conn != nil {
-		logger.Info("reConnect zk success")
-		return
-	}
-
-	time.Sleep(1 * time.Second)
 }

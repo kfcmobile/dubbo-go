@@ -135,7 +135,7 @@ func (l *ZkEventListener) handleZkNodeEvent(zkPath string, children []string, li
 	newChildren, err := l.client.GetChildren(zkPath)
 	if err != nil {
 		if err == errNilChildren {
-			content, _, err := l.client.getConn().Get(zkPath)
+			content, _, err := l.client.Conn.Get(zkPath)
 			if err != nil {
 				logger.Errorf("Get new node path {%v} 's content error,message is  {%v}", zkPath, perrors.WithStack(err))
 			} else {
@@ -158,8 +158,7 @@ func (l *ZkEventListener) handleZkNodeEvent(zkPath string, children []string, li
 
 		newNode = path.Join(zkPath, n)
 		logger.Infof("add zkNode{%s}", newNode)
-
-		content, _, err := l.client.getConn().Get(newNode)
+		content, _, err := l.client.Conn.Get(newNode)
 		if err != nil {
 			logger.Errorf("Get new node path {%v} 's content error,message is  {%v}", newNode, perrors.WithStack(err))
 		}
@@ -282,9 +281,14 @@ func (l *ZkEventListener) listenDirEvent(conf *common.URL, zkPath string, listen
 			l.pathMapLock.Lock()
 			l.pathMap[dubboPath] = struct{}{}
 			l.pathMapLock.Unlock()
-
-			content, _, err := l.client.getConn().Get(dubboPath)
-
+			// When Zk disconnected, the Conn will be set to nil, so here need check the value of Conn
+			l.client.RLock()
+			if l.client.Conn == nil {
+				l.client.RUnlock()
+				break
+			}
+			content, _, err := l.client.Conn.Get(dubboPath)
+			l.client.RUnlock()
 			if err != nil {
 				logger.Errorf("Get new node path {%v} 's content error,message is  {%v}", dubboPath, perrors.WithStack(err))
 			}
