@@ -136,7 +136,7 @@ func (l *ZkEventListener) handleZkNodeEvent(zkPath string, children []string, li
 	if err != nil {
 		if err == errNilChildren {
 			content, _, err := l.client.Conn.Get(zkPath)
-			if err != nil {
+			if err != nil || len(content) == 0 {
 				logger.Errorf("Get new node path {%v} 's content error,message is  {%v}", zkPath, perrors.WithStack(err))
 			} else {
 				listener.DataChange(remoting.Event{Path: zkPath, Action: remoting.EventTypeUpdate, Content: string(content)})
@@ -188,10 +188,10 @@ func (l *ZkEventListener) handleZkNodeEvent(zkPath string, children []string, li
 		oldNode = path.Join(zkPath, n)
 		logger.Warnf("delete zkPath{%s}", oldNode)
 
-		if err != nil {
+		/*if err != nil {
 			logger.Errorf("NewURL(i{%s}) = error{%v}", n, perrors.WithStack(err))
 			continue
-		}
+		}*/
 		listener.DataChange(remoting.Event{Path: oldNode, Action: remoting.EventTypeDel})
 	}
 }
