@@ -70,7 +70,7 @@ func (l *ZkEventListener) ListenServiceNodeEvent(zkPath string, listener remotin
 		if l.listenServiceNodeEvent(zkPath, listener) {
 			listener.DataChange(remoting.Event{Path: zkPath, Action: remoting.EventTypeDel})
 		}
-		logger.Warnf("listenSelf(zk path{%s}) goroutine exit now", zkPath)
+		logger.Warnf("ListenServiceNodeEvent -> listenSelf(zk path{%s}) goroutine exit now", zkPath)
 	}(zkPath, listener)
 }
 
@@ -302,9 +302,9 @@ func (l *ZkEventListener) listenDirEvent(conf *common.URL, zkPath string, listen
 			l.wg.Add(1)
 			go func(zkPath string, listener remoting.DataListener) {
 				if l.listenServiceNodeEvent(zkPath) {
-					listener.DataChange(remoting.Event{Path: zkPath, Action: remoting.EventTypeDel})
+					//listener.DataChange(remoting.Event{Path: zkPath, Action: remoting.EventTypeDel})
 				}
-				logger.Warnf("listenSelf(zk path{%s}) goroutine exit now", zkPath)
+				logger.Warnf("listenDirEvent->listenSelf(zk path{%s}) goroutine exit now", zkPath)
 			}(dubboPath, listener)
 
 			// listen sub path recursive
