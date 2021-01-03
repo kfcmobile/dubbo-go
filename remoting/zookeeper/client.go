@@ -637,6 +637,9 @@ func (z *ZookeeperClient) SetContent(zkPath string, content []byte, version int3
 
 // getConn gets zookeeper connection safely
 func (z *ZookeeperClient) getConn() *zk.Conn {
+	if z == nil {
+		return nil
+	}
 	z.RLock()
 	defer z.RUnlock()
 	return z.Conn
