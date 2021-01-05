@@ -185,13 +185,13 @@ func (l *ZkEventListener) handleZkNodeEvent(zkPath string, children []string, li
 			continue
 		}
 
-		oldNode = path.Join(zkPath, n)
-		logger.Warnf("delete zkPath{%s}", oldNode)
-
-		/*if err != nil {
+		if err != nil {
 			logger.Errorf("NewURL(i{%s}) = error{%v}", n, perrors.WithStack(err))
 			continue
-		}*/
+		}
+
+		oldNode = path.Join(zkPath, n)
+		logger.Warnf("delete zkPath{%s}", oldNode)
 		listener.DataChange(remoting.Event{Path: oldNode, Action: remoting.EventTypeDel})
 	}
 }
@@ -300,7 +300,7 @@ func (l *ZkEventListener) listenDirEvent(conf *common.URL, zkPath string, listen
 			l.wg.Add(1)
 			go func(zkPath string, listener remoting.DataListener) {
 				if l.listenServiceNodeEvent(zkPath) {
-					//listener.DataChange(remoting.Event{Path: zkPath, Action: remoting.EventTypeDel})
+					listener.DataChange(remoting.Event{Path: zkPath, Action: remoting.EventTypeDel})
 				}
 				logger.Warnf("listenDirEvent->listenSelf(zk path{%s}) goroutine exit now", zkPath)
 			}(dubboPath, listener)
