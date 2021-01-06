@@ -221,7 +221,7 @@ func (r *zkRegistry) registerTempZookeeperNode(root string, node string) error {
 	// try to register the node
 	zkPath, err = r.client.RegisterTemp(root, node)
 	if err != nil {
-		if perrors.Cause(err) == zk.ErrNodeExists {
+		if err == zk.ErrNodeExists {
 			return nil
 			// should delete the old node
 			/*logger.Info("Register temp node failed, try to delete the old and recreate  (root{%s}, node{%s}) , ignore!", root, node)
