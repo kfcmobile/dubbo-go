@@ -78,6 +78,7 @@ func (l *ZkEventListener) ListenServiceNodeEvent(zkPath string, listener remotin
 func (l *ZkEventListener) listenServiceNodeEvent(zkPath string, listener ...remoting.DataListener) bool {
 	defer l.wg.Done()
 	var zkEvent zk.Event
+
 	for {
 		keyEventCh, err := l.client.ExistW(zkPath)
 		if err != nil {
