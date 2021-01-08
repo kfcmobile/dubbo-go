@@ -135,8 +135,14 @@ func (l *ZkEventListener) handleZkNodeEvent(zkPath string, children []string, li
 	newChildren, err := l.client.GetChildren(zkPath)
 	if err != nil {
 		if err == errNilChildren {
+			//if zkPath is not children node
+			index := strings.Index(zkPath, "/providers/")
+			if index == -1 {
+				return
+			}
+
 			content, _, err := l.client.Conn.Get(zkPath)
-			if err != nil || len(content) == 0 {
+			if err != nil {
 				logger.Errorf("Get new node path {%v} 's content error,message is  {%v}", zkPath, perrors.WithStack(err))
 			} else {
 				listener.DataChange(remoting.Event{Path: zkPath, Action: remoting.EventTypeUpdate, Content: string(content)})
@@ -164,7 +170,7 @@ func (l *ZkEventListener) handleZkNodeEvent(zkPath string, children []string, li
 			logger.Errorf("Get new node path {%v} 's content error,message is  {%v}", newNode, perrors.WithStack(err))
 		}
 
-		if !listener.DataChange(remoting.Event{Path: zkPath, Action: remoting.EventTypeAdd, Content: string(content)}) {
+		if !listener.DataChange(remoting.Event{Path: newNode, Action: remoting.EventTypeAdd, Content: string(content)}) {
 			continue
 		}
 		// listen l service node
@@ -173,7 +179,7 @@ func (l *ZkEventListener) handleZkNodeEvent(zkPath string, children []string, li
 			logger.Warnf("delete zkNode{%s}", node)
 			if l.listenServiceNodeEvent(node, listener) {
 				logger.Infof("delete content{%s}", node)
-				listener.DataChange(remoting.Event{Path: zkPath, Action: remoting.EventTypeDel})
+				listener.DataChange(remoting.Event{Path: node, Action: remoting.EventTypeDel})
 			}
 			logger.Warnf("handleZkNodeEvent->listenSelf(zk path{%s}) goroutine exit now", zkPath)
 		}(newNode, zkPath, listener)
