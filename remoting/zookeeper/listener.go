@@ -176,9 +176,8 @@ func (l *ZkEventListener) handleZkNodeEvent(zkPath string, children []string, li
 		// listen l service node
 		l.wg.Add(1)
 		go func(node string, zkPath string, listener remoting.DataListener) {
-			logger.Warnf("delete zkNode{%s}", node)
 			if l.listenServiceNodeEvent(node, listener) {
-				logger.Infof("delete content{%s}", node)
+				logger.Warnf("delete zkNode{%s}", node)
 				listener.DataChange(remoting.Event{Path: node, Action: remoting.EventTypeDel})
 			}
 			logger.Warnf("handleZkNodeEvent->listenSelf(zk path{%s}) goroutine exit now", zkPath)
@@ -193,7 +192,7 @@ func (l *ZkEventListener) handleZkNodeEvent(zkPath string, children []string, li
 		}
 
 		oldNode = path.Join(zkPath, n)
-		logger.Warnf("delete zkPath{%s}", oldNode)
+		logger.Warnf("delete oldNode{%s}", oldNode)
 		listener.DataChange(remoting.Event{Path: oldNode, Action: remoting.EventTypeDel})
 	}
 }
