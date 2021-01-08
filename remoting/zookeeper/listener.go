@@ -336,7 +336,7 @@ func (l *ZkEventListener) listenDirEvent(conf *common.URL, zkPath string, listen
 				l.handleZkNodeEvent(zkEvent.Path, children, listener)
 				break WATCH
 			case <-l.client.Done():
-				logger.Warnf("client.done(), listen(path{%s}) goroutine exit now...", zkPath)
+				logger.Warnf("watch client.done(), listen(path{%s}) goroutine exit now...", zkPath)
 				ticker.Stop()
 				return
 			}
