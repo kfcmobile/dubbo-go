@@ -213,7 +213,6 @@ func (r *BaseRegistry) RestartCallBack() bool {
 
 	flag := true
 	for _, confIf := range services {
-		confIf.SetParam(constant.TIMESTAMP_KEY, strconv.FormatInt(time.Now().Unix(), 10))
 		err := r.register(confIf)
 		if err != nil {
 			logger.Errorf("(ZkProviderRegistry)register(conf{%#v}) = error{%#v}",
