@@ -274,6 +274,11 @@ func (r *BaseRegistry) processURL(c common.URL, f func(string, string) error, cp
 	default:
 		return perrors.Errorf("@c{%v} type is not referencer or provider", c)
 	}
+
+	if err != nil {
+		return perrors.WithMessagef(err, "register Node(path:%s, url:%s)", dubboPath, rawURL)
+	}
+
 	encodedURL = url.QueryEscape(rawURL)
 	dubboPath = strings.ReplaceAll(dubboPath, "$", "%24")
 	err = f(dubboPath, encodedURL)
