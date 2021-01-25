@@ -208,7 +208,7 @@ func (r *kubernetesRegistry) HandleClientRestart() {
 		failTimes int
 	)
 
-	defer r.WaitGroup()
+	defer r.WaitGroup().Done()
 LOOP:
 	for {
 		select {
