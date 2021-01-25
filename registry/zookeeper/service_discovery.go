@@ -19,7 +19,6 @@ package zookeeper
 
 import (
 	"fmt"
-	gxpage "github.com/dubbogo/gost/hash/page"
 	"net/url"
 	"strconv"
 	"strings"
@@ -28,7 +27,7 @@ import (
 
 import (
 	"github.com/dubbogo/gost/container/set"
-	"github.com/dubbogo/gost/page"
+	gxpage "github.com/dubbogo/gost/hash/page"
 	perrors "github.com/pkg/errors"
 )
 
