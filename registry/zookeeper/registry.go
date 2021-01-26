@@ -129,7 +129,7 @@ func (r *zkRegistry) InitListeners() {
 		defer oldDataListener.mutex.Unlock()
 		r.dataListener.closed = true
 		recovered := r.dataListener.subscribed
-		if len(recovered) > 0 {
+		if recovered != nil && len(recovered) > 0 {
 			// recover all subscribed url
 			for _, oldListener := range recovered {
 				var (
@@ -178,7 +178,6 @@ func (r *zkRegistry) DoUnsubscribe(conf *common.URL) (registry.Listener, error) 
 
 // CloseAndNilClient closes listeners and clear client
 func (r *zkRegistry) CloseAndNilClient() {
-	r.client.Close()
 	r.client = nil
 }
 
@@ -279,11 +278,7 @@ func (r *zkRegistry) getListener(conf *common.URL) (*RegistryConfigurationListen
 	//Interested register to dataconfig.
 	r.dataListener.SubscribeURL(conf, zkListener)
 
-	go r.listener.ListenServiceEvent(
-		conf,
-		fmt.Sprintf("/dubbo/%s/"+constant.DEFAULT_CATEGORY, url.QueryEscape(conf.Service())),
-		r.dataListener,
-	)
+	go r.listener.ListenServiceEvent(conf, fmt.Sprintf("/dubbo/%s/"+constant.DEFAULT_CATEGORY, url.QueryEscape(conf.Service())), r.dataListener)
 
 	return zkListener, nil
 }
@@ -294,9 +289,9 @@ func (r *zkRegistry) getCloseListener(conf *common.URL) (*RegistryConfigurationL
 	r.dataListener.mutex.Lock()
 	configurationListener := r.dataListener.subscribed[conf.ServiceKey()]
 	if configurationListener != nil {
-		rcListener, _ := configurationListener.(*RegistryConfigurationListener)
-		if rcListener != nil {
-			if rcListener.isClosed {
+		zkListener, _ = configurationListener.(*RegistryConfigurationListener)
+		if zkListener != nil {
+			if zkListener.isClosed {
 				r.dataListener.mutex.Unlock()
 				return nil, perrors.New("configListener already been closed")
 			}

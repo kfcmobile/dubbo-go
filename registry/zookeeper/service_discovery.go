@@ -24,10 +24,9 @@ import (
 	"strings"
 	"sync"
 )
-
 import (
-	"github.com/dubbogo/gost/container/set"
-	"github.com/dubbogo/gost/hash/page"
+	gxset "github.com/dubbogo/gost/container/set"
+	gxpage "github.com/dubbogo/gost/hash/page"
 	perrors "github.com/pkg/errors"
 )
 
@@ -111,6 +110,7 @@ func newZookeeperServiceDiscovery(name string) (registry.ServiceDiscovery, error
 	if err != nil {
 		return nil, err
 	}
+	zksd.WaitGroup().Add(1) //zk client start successful, then wg +1
 	go zookeeper.HandleClientRestart(zksd)
 	zksd.csd = curator_discovery.NewServiceDiscovery(zksd.client, rootPath)
 	return zksd, nil
@@ -165,7 +165,6 @@ func (zksd *zookeeperServiceDiscovery) String() string {
 
 // Close client be closed
 func (zksd *zookeeperServiceDiscovery) Destroy() error {
-	zksd.client.Close()
 	return nil
 }
 
