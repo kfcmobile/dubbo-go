@@ -264,9 +264,15 @@ func publishConsumerDefinition(url *common.URL) {
 	}
 }
 
+// GetInvoker get invoker from ReferenceConfig
+func (c *ReferenceConfig) GetInvoker() protocol.Invoker {
+	return c.invoker
+}
+
 // postProcessConfig asks registered ConfigPostProcessor to post-process the current ReferenceConfig.
 func (c *ReferenceConfig) postProcessConfig(url *common.URL) {
 	for _, p := range extension.GetConfigPostProcessors() {
 		p.PostProcessReferenceConfig(url)
 	}
+
 }

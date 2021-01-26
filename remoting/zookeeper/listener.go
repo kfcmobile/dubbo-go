@@ -113,6 +113,9 @@ func (l *ZkEventListener) listenServiceNodeEvent(zkPath string, listener ...remo
 			case zk.EventNotWatching:
 				logger.Warnf("zk.ExistW(key{%s}) = event{EventNotWatching}", zkPath)
 			case zk.EventNodeDeleted:
+				l.pathMapLock.Lock()
+				delete(l.pathMap, zkPath)
+				l.pathMapLock.Unlock()
 				logger.Warnf("zk.ExistW(key{%s}) = event{EventNodeDeleted}", zkPath)
 				return true
 			}
@@ -188,12 +191,7 @@ func (l *ZkEventListener) handleZkNodeEvent(zkPath string, children []string, li
 		}
 
 		oldNode = path.Join(zkPath, n)
-		logger.Warnf("delete zkPath{%s}", oldNode)
-
-		if err != nil {
-			logger.Errorf("NewURL(i{%s}) = error{%v}", n, perrors.WithStack(err))
-			continue
-		}
+		logger.Warnf("delete oldNode{%s}", oldNode)
 		listener.DataChange(remoting.Event{Path: oldNode, Action: remoting.EventTypeDel})
 	}
 }
