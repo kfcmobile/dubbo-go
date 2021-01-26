@@ -25,7 +25,7 @@ import (
 )
 
 import (
-	"github.com/apache/dubbo-getty"
+	getty "github.com/apache/dubbo-getty"
 	"github.com/dubbogo/go-zookeeper/zk"
 	perrors "github.com/pkg/errors"
 )
@@ -47,6 +47,7 @@ type ZkEventListener struct {
 	pathMapLock sync.Mutex
 	pathMap     map[string]struct{}
 	wg          sync.WaitGroup
+	exit        chan struct{}
 }
 
 // NewZkEventListener returns a EventListener instance
@@ -54,6 +55,7 @@ func NewZkEventListener(client *ZookeeperClient) *ZkEventListener {
 	return &ZkEventListener{
 		client:  client,
 		pathMap: make(map[string]struct{}),
+		exit:    make(chan struct{}),
 	}
 }
 
@@ -120,7 +122,7 @@ func (l *ZkEventListener) listenServiceNodeEvent(zkPath string, listener ...remo
 				logger.Warnf("zk.ExistW(key{%s}) = event{EventNodeDeleted}", zkPath)
 				return true
 			}
-		case <-l.client.Done():
+		case <-l.exit:
 			return false
 		}
 	}
@@ -249,9 +251,9 @@ func (l *ZkEventListener) listenDirEvent(conf *common.URL, zkPath string, listen
 			case <-getty.GetTimeWheel().After(timeSecondDuration(failTimes * ConnDelay)):
 				l.client.UnregisterEvent(zkPath, &event)
 				continue
-			case <-l.client.Done():
+			case <-l.exit:
 				l.client.UnregisterEvent(zkPath, &event)
-				logger.Warnf("client.done(), listen(path{%s}) goroutine exit now...", zkPath)
+				logger.Warnf("listen(path{%s}) goroutine exit now...", zkPath)
 				return
 			case <-event:
 				logger.Infof("get zk.EventNodeDataChange notify event")
@@ -338,8 +340,8 @@ func (l *ZkEventListener) listenDirEvent(conf *common.URL, zkPath string, listen
 				}
 				l.handleZkNodeEvent(zkEvent.Path, children, listener)
 				break WATCH
-			case <-l.client.Done():
-				logger.Warnf("watch client.done(), listen(path{%s}) goroutine exit now...", zkPath)
+			case <-l.exit:
+				logger.Warnf("watch exit, listen(path{%s}) goroutine exit now...", zkPath)
 				ticker.Stop()
 				return
 			}
@@ -371,6 +373,6 @@ func (l *ZkEventListener) valid() bool {
 
 // Close will let client listen exit
 func (l *ZkEventListener) Close() {
-	close(l.client.exit)
+	close(l.exit)
 	l.wg.Wait()
 }

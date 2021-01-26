@@ -205,11 +205,9 @@ func (c *zookeeperDynamicConfiguration) IsAvailable() bool {
 }
 
 func (c *zookeeperDynamicConfiguration) closeConfigs() {
+	logger.Infof("begin to close provider zk client")
 	c.cltLock.Lock()
 	defer c.cltLock.Unlock()
-	logger.Infof("begin to close provider zk client")
-	// Close the old client first to close the tmp node
-	c.client.Close()
 	c.client = nil
 }
 

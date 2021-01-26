@@ -21,6 +21,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -47,16 +48,22 @@ var (
 	errNilNode         = perrors.Errorf("node does not exist")
 )
 
+var (
+	clientHaveCreated uint32
+	mux               sync.Mutex
+	zkClient          *ZookeeperClient
+)
+
 // ZookeeperClient represents zookeeper client Configuration
 type ZookeeperClient struct {
-	name         string
-	ZkAddrs      []string
-	sync.RWMutex // for conn
-	Conn         *zk.Conn
-	Timeout      time.Duration
-	exit         chan struct{}
-	Wait         sync.WaitGroup
-
+	name              string
+	ZkAddrs           []string
+	sync.RWMutex      // for conn
+	Conn              *zk.Conn
+	Timeout           time.Duration
+	Wait              sync.WaitGroup
+	valid             uint32
+	reconnectCh       chan struct{}
 	eventRegistry     map[string][]*chan struct{}
 	eventRegistryLock sync.RWMutex
 }
@@ -111,14 +118,10 @@ func WithZkName(name string) Option {
 
 // ValidateZookeeperClient validates client and sets options
 func ValidateZookeeperClient(container ZkClientFacade, opts ...Option) error {
-	var (
-		err error
-	)
 	options := &Options{}
 	for _, opt := range opts {
 		opt(options)
 	}
-	connected := false
 
 	lock := container.ZkClientLock()
 	url := container.GetUrl()
@@ -128,39 +131,39 @@ func ValidateZookeeperClient(container ZkClientFacade, opts ...Option) error {
 
 	if container.ZkClient() == nil {
 		// in dubbo, every registry only connect one node, so this is []string{r.Address}
-		timeout, err := time.ParseDuration(url.GetParam(constant.REGISTRY_TIMEOUT_KEY, constant.DEFAULT_REG_TIMEOUT))
-		if err != nil {
+		timeout, paramErr := time.ParseDuration(url.GetParam(constant.REGISTRY_TIMEOUT_KEY, constant.DEFAULT_REG_TIMEOUT))
+		if paramErr != nil {
 			logger.Errorf("timeout config %v is invalid ,err is %v",
-				url.GetParam(constant.REGISTRY_TIMEOUT_KEY, constant.DEFAULT_REG_TIMEOUT), err.Error())
-			return perrors.WithMessagef(err, "newZookeeperClient(address:%+v)", url.Location)
+				url.GetParam(constant.REGISTRY_TIMEOUT_KEY, constant.DEFAULT_REG_TIMEOUT), paramErr.Error())
+			return perrors.WithMessagef(paramErr, "newZookeeperClient(address:%+v)", url.Location)
 		}
 		zkAddresses := strings.Split(url.Location, ",")
-		newClient, err := NewZookeeperClient(options.zkName, zkAddresses, timeout)
-		if err != nil {
+		newClient, cltErr := getZookeeperClient(options.zkName, zkAddresses, timeout)
+		if cltErr != nil {
 			logger.Warnf("newZookeeperClient(name{%s}, zk address{%v}, timeout{%d}) = error{%v}",
-				options.zkName, url.Location, timeout.String(), err)
-			return perrors.WithMessagef(err, "newZookeeperClient(address:%+v)", url.Location)
+				options.zkName, url.Location, timeout.String(), cltErr)
+			return perrors.WithMessagef(cltErr, "newZookeeperClient(address:%+v)", url.Location)
 		}
 		container.SetZkClient(newClient)
-		connected = true
 	}
+	return nil
+}
 
-	if container.ZkClient().Conn == nil {
-		var event <-chan zk.Event
-		container.ZkClient().Conn, event, err = zk.Connect(container.ZkClient().ZkAddrs, container.ZkClient().Timeout)
-		if err == nil {
-			container.ZkClient().Wait.Add(1)
-			connected = true
-			go container.ZkClient().HandleZkEvent(event)
+func getZookeeperClient(name string, zkAddrs []string, timeout time.Duration) (*ZookeeperClient, error) {
+	var err error
+	if atomic.LoadUint32(&clientHaveCreated) == 0 {
+		mux.Lock()
+		defer mux.Unlock()
+		if atomic.LoadUint32(&clientHaveCreated) == 0 {
+			zkClient, err = NewZookeeperClient(name, zkAddrs, timeout)
+			if err == nil {
+				atomic.StoreUint32(&clientHaveCreated, 1)
+			} else {
+				return nil, err
+			}
 		}
 	}
-
-	if connected {
-		logger.Infof("Connect to zookeeper successfully, name{%s}, zk address{%v}", options.zkName, url.Location)
-		container.WaitGroup().Add(1) // zk client start successful, then registry wg +1
-	}
-
-	return perrors.WithMessagef(err, "newZookeeperClient(address:%+v)", url.PrimitiveURL)
+	return zkClient, nil
 }
 
 // nolint
@@ -175,7 +178,7 @@ func NewZookeeperClient(name string, zkAddrs []string, timeout time.Duration) (*
 		name:          name,
 		ZkAddrs:       zkAddrs,
 		Timeout:       timeout,
-		exit:          make(chan struct{}),
+		reconnectCh:   make(chan struct{}),
 		eventRegistry: make(map[string][]*chan struct{}),
 	}
 	// connect to zookeeper
@@ -184,7 +187,7 @@ func NewZookeeperClient(name string, zkAddrs []string, timeout time.Duration) (*
 		return nil, perrors.WithMessagef(err, "zk.Connect(zkAddrs:%+v)", zkAddrs)
 	}
 
-	z.Wait.Add(1)
+	atomic.StoreUint32(&z.valid, 1)
 	go z.HandleZkEvent(event)
 
 	return z, nil
@@ -210,7 +213,7 @@ func NewMockZookeeperClient(name string, timeout time.Duration, opts ...Option) 
 		name:          name,
 		ZkAddrs:       []string{},
 		Timeout:       timeout,
-		exit:          make(chan struct{}),
+		reconnectCh:   make(chan struct{}),
 		eventRegistry: make(map[string][]*chan struct{}),
 	}
 
@@ -233,7 +236,7 @@ func NewMockZookeeperClient(name string, timeout time.Duration, opts ...Option) 
 	if err != nil {
 		return nil, nil, nil, perrors.WithMessagef(err, "zk.Connect")
 	}
-
+	atomic.StoreUint32(&z.valid, 1)
 	return ts, z, event, nil
 }
 
@@ -245,29 +248,18 @@ func (z *ZookeeperClient) HandleZkEvent(session <-chan zk.Event) {
 	)
 
 	defer func() {
-		z.Wait.Done()
 		logger.Infof("zk{path:%v, name:%s} connection goroutine game over.", z.ZkAddrs, z.name)
 	}()
 
 	for {
 		select {
-		case <-z.exit:
-			return
 		case event = <-session:
 			logger.Infof("client{%s} get a zookeeper event{type:%s, server:%s, path:%s, state:%d-%s, err:%v}",
 				z.name, event.Type, event.Server, event.Path, event.State, StateToString(event.State), event.Err)
 			switch (int)(event.State) {
 			case (int)(zk.StateDisconnected):
+				atomic.StoreUint32(&z.valid, 0)
 				logger.Warnf("zk{addr:%s} state is StateDisconnected, so close the zk client{name:%s}.", z.ZkAddrs, z.name)
-				z.Lock()
-				conn := z.Conn
-				z.Conn = nil
-				z.Unlock()
-				if conn != nil {
-					conn.Close()
-				}
-				z.stop()
-				return
 			case (int)(zk.EventNodeDataChanged), (int)(zk.EventNodeChildrenChanged):
 				logger.Infof("zkClient{%s} get zk node changed event{path:%s}", z.name, event.Path)
 				z.eventRegistryLock.RLock()
@@ -284,6 +276,11 @@ func (z *ZookeeperClient) HandleZkEvent(session <-chan zk.Event) {
 			case (int)(zk.StateConnecting), (int)(zk.StateConnected), (int)(zk.StateHasSession):
 				if state == (int)(zk.StateHasSession) {
 					continue
+				}
+				if event.State == zk.StateHasSession {
+					atomic.StoreUint32(&z.valid, 1)
+					close(z.reconnectCh)
+					z.reconnectCh = make(chan struct{})
 				}
 				z.eventRegistryLock.RLock()
 				if a, ok := z.eventRegistry[event.Path]; ok && 0 < len(a) {
@@ -339,53 +336,12 @@ func (z *ZookeeperClient) UnregisterEvent(zkPath string, event *chan struct{}) {
 	}
 }
 
-// nolint
-func (z *ZookeeperClient) Done() <-chan struct{} {
-	return z.exit
-}
-
-func (z *ZookeeperClient) stop() bool {
-	select {
-	case <-z.exit:
-		return true
-	default:
-		close(z.exit)
-	}
-
-	return false
-}
-
 // ZkConnValid validates zookeeper connection
 func (z *ZookeeperClient) ZkConnValid() bool {
-	select {
-	case <-z.exit:
-		return false
-	default:
+	if atomic.LoadUint32(&z.valid) == 1 {
+		return true
 	}
-
-	z.RLock()
-	defer z.RUnlock()
-	return z.Conn != nil
-}
-
-// nolint
-func (z *ZookeeperClient) Close() {
-	if z == nil {
-		return
-	}
-
-	z.stop()
-	z.Wait.Wait()
-	z.Lock()
-	conn := z.Conn
-	z.Conn = nil
-	z.Unlock()
-	if conn != nil {
-		logger.Infof("zkClient Conn{name:%s, zk addr:%d} exit now.", z.name, conn.SessionID())
-		conn.Close()
-	}
-
-	logger.Infof("zkClient{name:%s, zk addr:%s} exit now.", z.name, z.ZkAddrs)
+	return false
 }
 
 // Create will create the node recursively, which means that if the parent node is absent,
@@ -643,4 +599,14 @@ func (z *ZookeeperClient) getConn() *zk.Conn {
 	z.RLock()
 	defer z.RUnlock()
 	return z.Conn
+}
+
+// Reconnect gets zookeeper reconnect event
+func (z *ZookeeperClient) Reconnect() <-chan struct{} {
+	return z.reconnectCh
+}
+
+// In my opinion, this method should never called by user, here just for lint
+func (z *ZookeeperClient) Close() {
+	z.Conn.Close()
 }
