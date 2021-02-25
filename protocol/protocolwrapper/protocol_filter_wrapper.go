@@ -59,6 +59,11 @@ func (pfw *ProtocolFilterWrapper) Refer(url *common.URL) protocol.Invoker {
 	if pfw.protocol == nil {
 		pfw.protocol = extension.GetProtocol(url.Protocol)
 	}
+
+	invoker := pfw.protocol.Refer(url)
+	if invoker == nil {
+		return nil
+	}
 	return buildInvokerChain(pfw.protocol.Refer(url), constant.REFERENCE_FILTER_KEY)
 }
 
