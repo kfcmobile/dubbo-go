@@ -82,6 +82,7 @@ conditions:
 	assert.NoError(t, err)
 	defer func() {
 		z.Delete(path)
+		z.Close()
 	}()
 
 	zkUrl, _ := common.NewURL(fmt.Sprintf(zkFormat, localIP, ts.Servers[0].Port))
@@ -135,6 +136,7 @@ conditions:
 	assert.NoError(t, err)
 	defer func() {
 		z.Delete(path)
+		z.Close()
 	}()
 
 	zkUrl, _ := common.NewURL(fmt.Sprintf(zkFormat, localIP, zkCluster.Servers[0].Port))
@@ -149,7 +151,12 @@ conditions:
 	url := getConditionRouteUrl(applicationKey)
 	assert.NotNil(t, url)
 	factory := extension.GetRouterFactory(url.Protocol)
-	r, err := factory.NewPriorityRouter(url)
+	notify := make(chan struct{})
+	go func() {
+		for range notify {
+		}
+	}()
+	r, err := factory.NewPriorityRouter(url, notify)
 	assert.Nil(t, err)
 	assert.NotNil(t, r)
 
@@ -206,6 +213,7 @@ conditions:
 	assert.NoError(t, err)
 	defer func() {
 		z.Delete(path)
+		z.Close()
 	}()
 
 	zkUrl, _ := common.NewURL(fmt.Sprintf(zkFormat, localIP, ts.Servers[0].Port))
