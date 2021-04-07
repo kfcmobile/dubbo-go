@@ -185,7 +185,7 @@ func (l *ZkEventListener) handleZkNodeEvent(zkPath string, children []string, li
 				logger.Warnf("delete zkNode{%s}", node)
 				listener.DataChange(remoting.Event{Path: node, Action: remoting.EventTypeDel})
 				l.pathMapLock.Lock()
-				delete(l.pathMap, zkPath)
+				delete(l.pathMap, node)
 				l.pathMapLock.Unlock()
 			}
 			logger.Warnf("handleZkNodeEvent->listenSelf(zk path{%s}) goroutine exit now", node)
@@ -202,6 +202,9 @@ func (l *ZkEventListener) handleZkNodeEvent(zkPath string, children []string, li
 		oldNode = path.Join(zkPath, n)
 		logger.Warnf("delete oldNode{%s}", oldNode)
 		listener.DataChange(remoting.Event{Path: oldNode, Action: remoting.EventTypeDel})
+		l.pathMapLock.Lock()
+		delete(l.pathMap, oldNode)
+		l.pathMapLock.Unlock()
 	}
 }
 
