@@ -59,12 +59,10 @@ func (pfw *ProtocolFilterWrapper) Refer(url *common.URL) protocol.Invoker {
 	if pfw.protocol == nil {
 		pfw.protocol = extension.GetProtocol(url.Protocol)
 	}
-
 	invoker := pfw.protocol.Refer(url)
 	if invoker == nil {
 		return nil
 	}
-
 	return buildInvokerChain(invoker, constant.REFERENCE_FILTER_KEY)
 }
 
@@ -74,9 +72,6 @@ func (pfw *ProtocolFilterWrapper) Destroy() {
 }
 
 func buildInvokerChain(invoker protocol.Invoker, key string) protocol.Invoker {
-	if invoker == nil {
-		return nil
-	}
 	filterName := invoker.GetUrl().GetParam(key, "")
 	if filterName == "" {
 		return invoker
