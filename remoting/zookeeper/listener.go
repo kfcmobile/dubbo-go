@@ -39,7 +39,7 @@ import (
 )
 
 var (
-	defaultTTL = 10 * time.Minute
+	defaultTTL = 15 * time.Minute
 )
 
 // nolint
