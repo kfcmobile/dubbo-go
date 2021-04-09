@@ -265,7 +265,6 @@ func publishConsumerDefinition(url *common.URL) {
 	if remoteMetadataService, err := extension.GetRemoteMetadataService(); err == nil && remoteMetadataService != nil {
 		remoteMetadataService.PublishServiceDefinition(url)
 	}
-
 }
 
 // postProcessConfig asks registered ConfigPostProcessor to post-process the current ReferenceConfig.
