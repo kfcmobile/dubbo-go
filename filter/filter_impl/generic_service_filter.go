@@ -104,7 +104,7 @@ func (ef *GenericServiceFilter) Invoke(ctx context.Context, invoker protocol.Inv
 		err = mapstructure.Decode(oldParams[i], newParam)
 		newParam = reflect.ValueOf(newParam).Elem().Interface()
 		if err != nil {
-			logger.Errorf("[Generic Service Filter] decode arguments map to struct wrong: error{%v}", perrors.WithStack(err))
+			logger.Errorf("[Generic Service Filter] decode arguments map to struct wrong: error{%v} | oldParams: %+v | argsType: %+v", perrors.WithStack(err), oldParams, argsType)
 			return &protocol.RPCResult{}
 		}
 		newParams[i] = newParam
