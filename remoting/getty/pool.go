@@ -69,8 +69,8 @@ func newGettyRPCClientConn(pool *gettyRPCClientPool, addr string) (*gettyRPCClie
 		clientOpts = append(clientOpts, getty.WithClientSslEnabled(pool.sslEnabled), getty.WithClientTlsConfigBuilder(config.GetClientTlsConfigBuilder()))
 	}
 
-	if clientGrpool != nil {
-		clientOpts = append(clientOpts, getty.WithClientTaskPool(clientGrpool))
+	if pool.rpcClient.taskPool != nil {
+		clientOpts = append(clientOpts, getty.WithClientTaskPool(pool.rpcClient.taskPool))
 	}
 
 	gettyClient = getty.NewTCPClient(clientOpts...)

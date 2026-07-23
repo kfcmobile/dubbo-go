@@ -19,6 +19,7 @@ package getty
 
 import (
 	"math/rand"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -43,64 +44,117 @@ var (
 	errClientClosed      = perrors.New("client closed")
 	errClientReadTimeout = perrors.New("maybe the client read timeout or fail to decode tcp stream in Writer.Write")
 
+	clientConfMu sync.RWMutex
 	clientConf   *ClientConfig
-	clientGrpool gxsync.GenericTaskPool
+
+	processClientGrpool clientTaskPool
 )
 
+// clientTaskPool owns the process-wide task pool used by all Getty clients.
+// The first valid client configuration fixes its size for the process lifetime.
+type clientTaskPool struct {
+	once sync.Once
+	pool gxsync.GenericTaskPool
+	size int
+}
+
+func normalizeClientGrpoolSize(size int) int {
+	if size < 1 {
+		return runtime.GOMAXPROCS(-1) * 100
+	}
+	return size
+}
+
+func (p *clientTaskPool) get(size int) (gxsync.GenericTaskPool, int) {
+	size = normalizeClientGrpoolSize(size)
+	p.once.Do(func() {
+		p.size = size
+		p.pool = gxsync.NewTaskPoolSimple(size)
+	})
+	return p.pool, p.size
+}
+
 // it is init client for single protocol.
-func initClient(protocol string) {
+func initClient(protocol string) (ClientConfig, gxsync.GenericTaskPool, error) {
+	var emptyConfig ClientConfig
 	if protocol == "" {
-		return
+		return emptyConfig, nil, perrors.New("client protocol is empty")
 	}
 
 	// load clientconfig from consumer_config
 	// default use dubbo
 	consumerConfig := config.GetConsumerConfig()
 	if consumerConfig.ApplicationConfig == nil {
-		return
+		if configuredClient, ok := getClientConf(); ok {
+			return configuredClient, setClientGrpool(configuredClient.GrPoolSize), nil
+		}
+		return emptyConfig, nil, perrors.New("consumer application config is nil")
 	}
-	protocolConf := config.GetConsumerConfig().ProtocolConf
+	protocolConf := consumerConfig.ProtocolConf
 	defaultClientConfig := GetDefaultClientConfig()
 	if protocolConf == nil {
 		logger.Info("protocol_conf default use dubbo config")
 	} else {
-		dubboConf := protocolConf.(map[interface{}]interface{})[protocol]
+		protocolConfigs, ok := protocolConf.(map[interface{}]interface{})
+		if !ok {
+			return emptyConfig, nil, perrors.Errorf("invalid protocol_conf type %T", protocolConf)
+		}
+		dubboConf := protocolConfigs[protocol]
 		if dubboConf == nil {
-			logger.Warnf("dubboConf is nil")
-			return
+			return emptyConfig, nil, perrors.Errorf("client config for protocol %q is nil", protocol)
 		}
 		dubboConfByte, err := yaml.Marshal(dubboConf)
 		if err != nil {
-			panic(err)
+			return emptyConfig, nil, perrors.WithStack(err)
 		}
 		err = yaml.Unmarshal(dubboConfByte, &defaultClientConfig)
 		if err != nil {
-			panic(err)
+			return emptyConfig, nil, perrors.WithStack(err)
 		}
 	}
-	clientConf = &defaultClientConfig
-	if err := clientConf.CheckValidity(); err != nil {
-		logger.Warnf("[CheckValidity] error: %v", err)
-		return
+	if err := defaultClientConfig.CheckValidity(); err != nil {
+		return emptyConfig, nil, perrors.WithStack(err)
 	}
-	setClientGrpool()
+	setClientConf(defaultClientConfig)
+	taskPool := setClientGrpool(defaultClientConfig.GrPoolSize)
 
 	rand.Seed(time.Now().UnixNano())
+	return defaultClientConfig, taskPool, nil
 }
 
 // Config ClientConf
 func SetClientConf(c ClientConfig) {
-	clientConf = &c
-	err := clientConf.CheckValidity()
-	if err != nil {
+	if err := c.CheckValidity(); err != nil {
 		logger.Warnf("[ClientConfig CheckValidity] error: %v", err)
 		return
 	}
-	setClientGrpool()
+	setClientConf(c)
+	setClientGrpool(c.GrPoolSize)
 }
 
-func setClientGrpool() {
-	clientGrpool = gxsync.NewTaskPoolSimple(clientConf.GrPoolSize)
+func setClientConf(c ClientConfig) {
+	clientConfMu.Lock()
+	clientConf = &c
+	clientConfMu.Unlock()
+}
+
+func getClientConf() (ClientConfig, bool) {
+	clientConfMu.RLock()
+	defer clientConfMu.RUnlock()
+	if clientConf == nil {
+		return ClientConfig{}, false
+	}
+	return *clientConf, true
+}
+
+func setClientGrpool(size int) gxsync.GenericTaskPool {
+	taskPool, configuredSize := processClientGrpool.get(size)
+	requestedSize := normalizeClientGrpoolSize(size)
+	if configuredSize != requestedSize {
+		logger.Warnf("client goroutine pool already initialized with size %d; ignore requested size %d",
+			configuredSize, requestedSize)
+	}
+	return taskPool
 }
 
 // Options : param config
@@ -119,6 +173,7 @@ type Client struct {
 	conf           ClientConfig
 	mux            sync.RWMutex
 	pool           *gettyRPCClientPool
+	taskPool       gxsync.GenericTaskPool // Process-wide; Client.Close must not close it.
 	codec          remoting.Codec
 	ExchangeClient *remoting.ExchangeClient
 }
@@ -145,16 +200,20 @@ func (c *Client) SetExchangeClient(client *remoting.ExchangeClient) {
 
 // init client and try to connection.
 func (c *Client) Connect(url *common.URL) error {
-	initClient(url.Protocol)
-	c.conf = *clientConf
+	clientConfig, taskPool, err := initClient(url.Protocol)
+	if err != nil {
+		return perrors.WithStack(err)
+	}
+	c.conf = clientConfig
+	c.taskPool = taskPool
 	// new client
-	c.pool = newGettyRPCClientConnPool(c, clientConf.PoolSize, time.Duration(int(time.Second)*clientConf.PoolTTL))
+	c.pool = newGettyRPCClientConnPool(c, c.conf.PoolSize, time.Duration(int(time.Second)*c.conf.PoolTTL))
 	c.pool.sslEnabled = url.GetParamBool(constant.SSL_ENABLED_KEY, false)
 
 	// codec
 	c.codec = remoting.GetCodec(url.Protocol)
 	c.addr = url.Location
-	_, _, err := c.selectSession(c.addr)
+	_, _, err = c.selectSession(c.addr)
 	if err != nil {
 		logger.Errorf("try to connect server %v failed for : %v", url.Location, err)
 	}
