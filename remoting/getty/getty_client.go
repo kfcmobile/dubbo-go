@@ -268,10 +268,10 @@ func (c *Client) Request(request *remoting.Request, timeout time.Duration, respo
 
 // isAvailable returns true if the connection is available, or it can be re-established.
 func (c *Client) IsAvailable() bool {
-	client, _, err := c.selectSession(c.addr)
+	_, session, err := c.selectSession(c.addr)
 	return err == nil &&
 		// defensive check
-		client != nil
+		session != nil
 }
 
 func (c *Client) selectSession(addr string) (*gettyRPCClient, getty.Session, error) {
@@ -280,11 +280,23 @@ func (c *Client) selectSession(addr string) (*gettyRPCClient, getty.Session, err
 	if c.pool == nil {
 		return nil, nil, perrors.New("client pool have been closed")
 	}
-	rpcClient, err := c.pool.getGettyRpcClient(addr)
-	if err != nil {
-		return nil, nil, perrors.WithStack(err)
+
+	const maxAttempts = 2
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		rpcClient, err := c.pool.getGettyRpcClient(addr)
+		if err != nil {
+			return nil, nil, perrors.WithStack(err)
+		}
+		session := rpcClient.selectSession()
+		if session != nil {
+			return rpcClient, session, nil
+		}
+
+		// No bytes have been written yet, so discarding the stale client and retrying is safe.
+		c.pool.safeRemove(rpcClient)
+		_ = rpcClient.close()
 	}
-	return rpcClient, rpcClient.selectSession(), nil
+	return nil, nil, errSessionNotExist
 }
 
 func (c *Client) transfer(session getty.Session, request *remoting.Request, timeout time.Duration) (int, int, error) {

@@ -30,6 +30,7 @@ import (
 import (
 	"github.com/apache/dubbo-getty"
 	perrors "github.com/pkg/errors"
+	"golang.org/x/sync/singleflight"
 )
 
 import (
@@ -51,8 +52,11 @@ type gettyRPCClient struct {
 }
 
 var (
-	errClientPoolClosed = perrors.New("client pool closed")
+	errClientPoolClosed      = perrors.New("client pool closed")
+	errClientPoolUnavailable = perrors.New("client pool cannot store a new client")
 )
+
+type gettyRPCClientFactory func(pool *gettyRPCClientPool, addr string) (*gettyRPCClient, error)
 
 func newGettyRPCClientConn(pool *gettyRPCClientPool, addr string) (*gettyRPCClient, error) {
 	var (
@@ -331,6 +335,9 @@ type gettyRPCClientPool struct {
 	ttl        int64 // ttl of every gettyRPCClient, it is checked when getConn
 	sslEnabled bool
 
+	// Coalesce an empty-pool connection attempt so concurrent requests share its result.
+	createGroup singleflight.Group
+
 	sync.Mutex
 	conns []*gettyRPCClient
 }
@@ -356,16 +363,50 @@ func (p *gettyRPCClientPool) close() {
 }
 
 func (p *gettyRPCClientPool) getGettyRpcClient(addr string) (*gettyRPCClient, error) {
-	conn, connErr := p.get()
-	if connErr == nil && conn == nil {
-		// create new conn
-		rpcClientConn, rpcErr := newGettyRPCClientConn(p, addr)
-		if rpcErr == nil {
-			p.put(rpcClientConn)
-		}
-		return rpcClientConn, perrors.WithStack(rpcErr)
+	return p.getOrCreateGettyRPCClient(addr, newGettyRPCClientConn)
+}
+
+func (p *gettyRPCClientPool) getOrCreateGettyRPCClient(
+	addr string,
+	factory gettyRPCClientFactory,
+) (*gettyRPCClient, error) {
+	conn, err := p.get()
+	if err != nil || conn != nil {
+		return conn, perrors.WithStack(err)
 	}
-	return conn, perrors.WithStack(connErr)
+
+	value, err, _ := p.createGroup.Do(addr, func() (interface{}, error) {
+		// Another caller may have populated the pool before this caller became the leader.
+		conn, getErr := p.get()
+		if getErr != nil || conn != nil {
+			return conn, getErr
+		}
+
+		conn, createErr := factory(p, addr)
+		if createErr != nil {
+			return nil, createErr
+		}
+		if p.put(conn) {
+			return conn, nil
+		}
+
+		// The pool may have been populated or closed while the connection was being created.
+		_ = conn.close()
+		conn, getErr = p.get()
+		if getErr != nil || conn != nil {
+			return conn, getErr
+		}
+		return nil, errClientPoolUnavailable
+	})
+	if err != nil {
+		return nil, perrors.WithStack(err)
+	}
+
+	conn, ok := value.(*gettyRPCClient)
+	if !ok || conn == nil {
+		return nil, errClientPoolUnavailable
+	}
+	return conn, nil
 }
 
 func (p *gettyRPCClientPool) get() (*gettyRPCClient, error) {
@@ -398,28 +439,26 @@ func (p *gettyRPCClientPool) get() (*gettyRPCClient, error) {
 	return nil, nil
 }
 
-func (p *gettyRPCClientPool) put(conn *gettyRPCClient) {
+func (p *gettyRPCClientPool) put(conn *gettyRPCClient) bool {
 	if conn == nil || conn.getActive() == 0 {
-		return
+		return false
 	}
 	p.Lock()
 	defer p.Unlock()
 	if p.conns == nil {
-		return
+		return false
 	}
 	// check whether @conn has existed in p.conns or not.
 	for i := range p.conns {
 		if p.conns[i] == conn {
-			return
+			return true
 		}
 	}
 	if len(p.conns) >= p.size {
-		// delete @conn from client pool
-		// p.remove(conn)
-		conn.close()
-		return
+		return false
 	}
 	p.conns = append(p.conns, conn)
+	return true
 }
 
 func (p *gettyRPCClientPool) remove(conn *gettyRPCClient) {

@@ -48,6 +48,9 @@ func TestRunSuite(t *testing.T) {
 	testRequestOneWay(t, svr, url, client)
 	testClient_Call(t, svr, url, client)
 	testClient_AsyncCall(t, svr, url, client)
+	t.Run("select session retries when last session disappears", func(t *testing.T) {
+		testClientSelectSessionRetry(t, client)
+	})
 	svr.Stop()
 }
 
